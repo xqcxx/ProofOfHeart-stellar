@@ -460,6 +460,16 @@ impl ProofOfHeart {
         env.storage().instance().get(&DataKey::RevenueClaimed(campaign_id, contributor)).unwrap_or(0)
     }
 
+    pub fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        let valid_fee = if new_fee > 1000 { 1000 } else { new_fee };
+        let old_fee: u32 = env.storage().instance().get(&DataKey::PlatformFee).unwrap_or(300);
+        env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
+        env.events().publish(("fee_updated",), (old_fee, valid_fee));
+        Ok(())
+    }
+
     pub fn get_approve_votes(env: Env, campaign_id: u32) -> u32 {
         env.storage()
             .instance()
