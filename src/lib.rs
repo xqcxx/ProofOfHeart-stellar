@@ -173,6 +173,7 @@ impl ProofOfHeart {
         if funding_goal <= 0 {
             return Err(Error::FundingGoalMustBePositive);
         }
+        if duration_days < 1 || duration_days > 365 {
         if !(1..=365).contains(&duration_days) {
             return Err(Error::InvalidDuration);
         }
@@ -693,6 +694,11 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    pub fn get_campaign(env: Env, campaign_id: u32) -> Campaign {
+        env.storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .unwrap()
     /// Gets a campaign's current state.
     ///
     /// # Returns
@@ -728,6 +734,11 @@ impl ProofOfHeart {
             .unwrap_or(0)
     }
 
+    pub fn get_campaign_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CampaignCount)
+            .unwrap_or(0)
     /// Returns the current contract version stored in instance storage.
     /// A return value of 0 indicates the contract was initialized before version tracking was added.
     pub fn get_version(env: Env) -> u32 {

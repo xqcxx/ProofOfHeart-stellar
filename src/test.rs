@@ -4,6 +4,8 @@ use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
     Address, Env, IntoVal, String, Symbol,
 };
@@ -337,6 +339,7 @@ fn test_failure_states() {
 
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
         timestamp: env.ledger().timestamp() + (duration_days * 86450),
+        protocol_version: 20,
         protocol_version: 22,
         sequence_number: env.ledger().sequence(),
         network_id: [0; 32],
@@ -358,6 +361,23 @@ fn test_failure_states() {
 }
 
 #[test]
+fn test_multiple_concurrent_campaigns_are_isolated() {
+    let (env, _admin, creator1, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    let creator2 = Address::generate(&env);
+    let creator3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &10000);
+    token_admin.mint(&contributor2, &10000);
+    token_admin.mint(&creator3, &10000);
+
+    let c1_title = String::from_str(&env, "Campaign 1");
+    let c1_desc = String::from_str(&env, "Educator campaign");
+    let campaign_1 = client.create_campaign(
+        &creator1,
+        &c1_title,
+        &c1_desc,
 fn test_get_version() {
     let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
@@ -384,6 +404,15 @@ fn test_admin_verify_campaign_success() {
         &0,
     );
 
+    let c2_title = String::from_str(&env, "Campaign 2");
+    let c2_desc = String::from_str(&env, "Learner campaign");
+    let campaign_2 = client.create_campaign(
+        &creator2,
+        &c2_title,
+        &c2_desc,
+        &1500,
+        &30,
+        &Category::Learner,
     client.verify_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.is_verified, true);
@@ -435,6 +464,93 @@ fn test_community_voting_verification_success() {
         &0,
     );
 
+    let c3_title = String::from_str(&env, "Campaign 3");
+    let c3_desc = String::from_str(&env, "Startup campaign");
+    let campaign_3 = client.create_campaign(
+        &creator3,
+        &c3_title,
+        &c3_desc,
+        &2000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &1500,
+    );
+
+    assert_eq!(campaign_1, 1);
+    assert_eq!(campaign_2, 2);
+    assert_eq!(campaign_3, 3);
+    assert_eq!(client.get_campaign_count(), 3);
+
+    client.contribute(&campaign_1, &contributor1, &1000);
+
+    client.contribute(&campaign_2, &contributor1, &400);
+    client.contribute(&campaign_2, &contributor2, &500);
+
+    client.contribute(&campaign_3, &contributor1, &1200);
+    client.contribute(&campaign_3, &contributor2, &800);
+
+    assert_eq!(client.get_contribution(&campaign_1, &contributor1), 1000);
+    assert_eq!(client.get_contribution(&campaign_1, &contributor2), 0);
+    assert_eq!(client.get_contribution(&campaign_2, &contributor1), 400);
+    assert_eq!(client.get_contribution(&campaign_2, &contributor2), 500);
+    assert_eq!(client.get_contribution(&campaign_3, &contributor1), 1200);
+    assert_eq!(client.get_contribution(&campaign_3, &contributor2), 800);
+
+    client.withdraw_funds(&campaign_1);
+
+    let c1_after_withdraw = client.get_campaign(&campaign_1);
+    let c2_after_withdraw = client.get_campaign(&campaign_2);
+    let c3_after_withdraw = client.get_campaign(&campaign_3);
+
+    assert_eq!(c1_after_withdraw.funds_withdrawn, true);
+    assert_eq!(c1_after_withdraw.is_active, false);
+
+    assert_eq!(c2_after_withdraw.amount_raised, 900);
+    assert_eq!(c2_after_withdraw.funds_withdrawn, false);
+    assert_eq!(c2_after_withdraw.is_active, true);
+    assert_eq!(c2_after_withdraw.is_cancelled, false);
+
+    assert_eq!(c3_after_withdraw.amount_raised, 2000);
+    assert_eq!(c3_after_withdraw.funds_withdrawn, false);
+    assert_eq!(c3_after_withdraw.is_active, true);
+    assert_eq!(c3_after_withdraw.is_cancelled, false);
+
+    client.cancel_campaign(&campaign_2);
+
+    let c1_after_cancel = client.get_campaign(&campaign_1);
+    let c2_after_cancel = client.get_campaign(&campaign_2);
+    let c3_after_cancel = client.get_campaign(&campaign_3);
+
+    assert_eq!(c2_after_cancel.is_cancelled, true);
+    assert_eq!(c2_after_cancel.is_active, false);
+
+    assert_eq!(c1_after_cancel.funds_withdrawn, true);
+    assert_eq!(c1_after_cancel.is_cancelled, false);
+    assert_eq!(c3_after_cancel.is_active, true);
+    assert_eq!(c3_after_cancel.is_cancelled, false);
+
+    assert_eq!(client.get_revenue_pool(&campaign_1), 0);
+    assert_eq!(client.get_revenue_pool(&campaign_2), 0);
+
+    client.deposit_revenue(&campaign_3, &3000);
+
+    assert_eq!(client.get_revenue_pool(&campaign_1), 0);
+    assert_eq!(client.get_revenue_pool(&campaign_2), 0);
+    assert_eq!(client.get_revenue_pool(&campaign_3), 3000);
+
+    // Balance checks to ensure campaign operations remained isolated.
+    assert_eq!(token.balance(&client.address), 5900);
+    assert_eq!(token.balance(&creator3), 7000);
+}
+
+#[test]
+fn test_double_refund_prevention() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &2000);
+
+    let title = String::from_str(&env, "Double Refund");
+    let desc = String::from_str(&env, "Test double refund");
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &true);
     client.vote_on_campaign(&campaign_id, &voter3, &false);
@@ -578,6 +694,9 @@ fn test_deadline_boundary() {
         &creator,
         &title,
         &desc,
+        &5000,
+        &10,
+        &Category::Learner,
         &funding_goal,
         &duration_days,
         &Category::Educator,
@@ -585,6 +704,15 @@ fn test_deadline_boundary() {
         &0,
     );
 
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.cancel_campaign(&campaign_id);
+
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 2000);
+
+    let res = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+    assert_eq!(token.balance(&contributor1), 2000);
     let campaign = client.get_campaign(&campaign_id);
     let deadline = campaign.deadline;
 
