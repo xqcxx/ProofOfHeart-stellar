@@ -765,3 +765,13 @@ fn test_reinit_prevention() {
     assert_eq!(client.get_token(), token.address);
     assert_eq!(client.get_platform_fee(), 300);
 }
+
+#[test]
+fn test_initialization_getters() {
+    let (_, admin, _, _, _, token, _, client) = setup_env();
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+    assert_eq!(client.get_campaign_count(), 0);
+}
