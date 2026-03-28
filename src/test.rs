@@ -555,6 +555,73 @@ fn test_update_platform_fee() {
 }
 
 #[test]
+fn test_get_campaign_not_found() {
+    let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    // Attempting to get a Campaign with a non-existent ID should return CampaignNotFound
+    let res = client.try_get_campaign(&999);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+#[test]
+fn test_deadline_boundary() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Boundary Test");
+    let desc = String::from_str(&env, "Testing exact deadline boundary");
+    let duration_days = 2;
+    let funding_goal = 1000;
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &funding_goal,
+        &duration_days,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    let campaign = client.get_campaign(&campaign_id);
+    let deadline = campaign.deadline;
+
+    // Fast forward to exactly the deadline
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // Should succeed exactly at the deadline
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    // Fast forward to exactly 1 second past the deadline
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // Should fail past the deadline
+    let res = client.try_contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
+}
+
+#[test]
 fn test_reinit_prevention() {
     let (env, admin, _, _, _, token, _, client) = setup_env();
 
