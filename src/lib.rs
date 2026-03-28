@@ -1,5 +1,12 @@
 #![no_std]
 
+/// Current contract version. Increment this on each breaking upgrade.
+/// To upgrade a deployed Soroban contract, call `env.deployer().update_current_contract_wasm(new_wasm_hash)`
+/// from an admin-guarded function after deploying the new WASM to the network. The storage layout
+/// (DataKey variants, struct fields) must remain backwards-compatible unless a migration function
+/// is included in the upgrade transaction.
+const CONTRACT_VERSION: u32 = 1;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Env, String,
 };
@@ -67,6 +74,7 @@ pub enum DataKey {
     Contribution(u32, Address),
     RevenuePool(u32),
     RevenueClaimed(u32, Address),
+    Version,
     ApproveVotes(u32),
     RejectVotes(u32),
     HasVoted(u32, Address),
@@ -90,6 +98,7 @@ impl ProofOfHeart {
         let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee }; // Max 10% limit
         env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
         env.storage().instance().set(&DataKey::CampaignCount, &0u32);
+        env.storage().instance().set(&DataKey::Version, &CONTRACT_VERSION);
         env.storage()
             .instance()
             .set(&DataKey::MinVotesQuorum, &DEFAULT_MIN_VOTES_QUORUM);
@@ -458,6 +467,12 @@ impl ProofOfHeart {
 
     pub fn get_revenue_claimed(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         env.storage().instance().get(&DataKey::RevenueClaimed(campaign_id, contributor)).unwrap_or(0)
+    }
+
+    /// Returns the current contract version stored in instance storage.
+    /// A return value of 0 indicates the contract was initialized before version tracking was added.
+    pub fn get_version(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Version).unwrap_or(0)
     }
 
     pub fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {

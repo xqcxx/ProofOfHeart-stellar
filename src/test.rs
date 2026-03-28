@@ -225,6 +225,14 @@ fn test_failure_states() {
 }
 
 #[test]
+fn test_get_version() {
+    let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) = setup_env();
+
+    // init stores CONTRACT_VERSION (1) in instance storage
+    assert_eq!(client.get_version(), 1u32);
+}
+
+#[test]
 fn test_community_voting_verification_success() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
