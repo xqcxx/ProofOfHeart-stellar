@@ -211,7 +211,7 @@ fn test_failure_states() {
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
 
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo { timestamp: env.ledger().timestamp() + (duration_days * 86450), protocol_version: 20, sequence_number: env.ledger().sequence(), network_id: [0; 32], base_reserve: 10, min_temp_entry_ttl: 10, min_persistent_entry_ttl: 10, max_entry_ttl: 10 }); 
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo { timestamp: env.ledger().timestamp() + (duration_days * 86450), protocol_version: 22, sequence_number: env.ledger().sequence(), network_id: [0; 32], base_reserve: 10, min_temp_entry_ttl: 10, min_persistent_entry_ttl: 10, max_entry_ttl: 10 }); 
 
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
@@ -319,4 +319,15 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
     let res = client.try_verify_campaign(&campaign_id_2);
     assert_eq!(res.unwrap_err().unwrap(), Error::VotingThresholdNotMet);
+}
+
+#[test]
+fn test_update_platform_fee() {
+    let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) = setup_env();
+
+    let result = client.try_update_platform_fee(&500);
+    assert!(result.is_ok(), "Admin should be able to update platform fee");
+
+    let result = client.try_update_platform_fee(&5000);
+    assert!(result.is_ok(), "Fee update should succeed even when capped");
 }
