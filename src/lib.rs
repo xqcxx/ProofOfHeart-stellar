@@ -659,6 +659,57 @@ impl ProofOfHeart {
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
     }
+
+    pub fn get_campaign_count(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
+    }
+
+    pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+        let total_count: u32 = env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0);
+        let mut campaigns = soroban_sdk::Vec::new(&env);
+
+        if start >= total_count || limit == 0 {
+            return campaigns;
+        }
+
+        let end = if start + limit > total_count {
+            total_count
+        } else {
+            start + limit
+        };
+
+        for id in (start + 1)..=end {
+            if let Some(campaign) = env.storage().instance().get::<_, Campaign>(&DataKey::Campaign(id)) {
+                campaigns.push_back(campaign);
+            }
+        }
+
+        campaigns
+    }
+
+    pub fn list_active_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+        let total_count: u32 = env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0);
+        let mut campaigns = soroban_sdk::Vec::new(&env);
+
+        if start >= total_count || limit == 0 {
+            return campaigns;
+        }
+
+        let mut collected = 0u32;
+        let mut current_id = start + 1;
+
+        while collected < limit && current_id <= total_count {
+            if let Some(campaign) = env.storage().instance().get::<_, Campaign>(&DataKey::Campaign(current_id)) {
+                if campaign.is_active && !campaign.is_cancelled {
+                    campaigns.push_back(campaign);
+                    collected += 1;
+                }
+            }
+            current_id += 1;
+        }
+
+        campaigns
+    }
 }
 
 #[cfg(test)]
