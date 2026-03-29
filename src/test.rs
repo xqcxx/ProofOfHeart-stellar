@@ -796,13 +796,18 @@ fn test_initialization_getters() {
 
 #[test]
 fn test_revenue_sharing_edge_cases() {
+<<<<<<< HEAD
     let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
         setup_env();
+=======
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+>>>>>>> origin/main
 
     // 1. Non-revenue campaign: check ValidationFailed
     let title_nr = String::from_str(&env, "No Revenue");
     let desc_nr = String::from_str(&env, "Non-revenue campaign");
     let campaign_nr = client.create_campaign(
+<<<<<<< HEAD
         &creator,
         &title_nr,
         &desc_nr,
@@ -811,6 +816,9 @@ fn test_revenue_sharing_edge_cases() {
         &Category::Educator,
         &false,
         &0,
+=======
+        &creator, &title_nr, &desc_nr, &1000, &30, &Category::Educator, &false, &0
+>>>>>>> origin/main
     );
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -823,6 +831,7 @@ fn test_revenue_sharing_edge_cases() {
     let desc = String::from_str(&env, "Test rounding and pool edge cases");
     // 100% revenue share (10000 bps)
     let campaign_id = client.create_campaign(
+<<<<<<< HEAD
         &creator,
         &title,
         &desc,
@@ -831,6 +840,9 @@ fn test_revenue_sharing_edge_cases() {
         &Category::EducationalStartup,
         &true,
         &10000,
+=======
+        &creator, &title, &desc, &3, &30, &Category::EducationalStartup, &true, &10000
+>>>>>>> origin/main
     );
 
     client.contribute(&campaign_id, &contributor1, &1);
@@ -842,7 +854,11 @@ fn test_revenue_sharing_edge_cases() {
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
 
     // 3. Rounding: 10 revenue / 3 contribution units (1 vs 2)
+<<<<<<< HEAD
     client.deposit_revenue(&campaign_id, &10);
+=======
+    client.deposit_revenue(&campaign_id, &10); 
+>>>>>>> origin/main
     client.claim_revenue(&campaign_id, &contributor1); // (1 * 10) / 3 = 3
     assert_eq!(token.balance(&contributor1), 12); // Initial 10 - 1 contribution + 3 claimed
 
@@ -852,4 +868,8 @@ fn test_revenue_sharing_edge_cases() {
     // 4. Double claim: NoFundsToWithdraw
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> origin/main
