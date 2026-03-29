@@ -873,3 +873,45 @@ fn test_revenue_sharing_edge_cases() {
 =======
 }
 >>>>>>> origin/main
+=======
+
+#[test]
+fn test_view_functions_error_handling() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    // Create a valid campaign for relative testing
+    let title = String::from_str(&env, "View Test");
+    let desc = String::from_str(&env, "Testing view functions");
+    let campaign_id = client.create_campaign(
+        &creator, &title, &desc, &1000, &30, &Category::Educator, &false, &0
+    );
+
+    let stranger = Address::generate(&env);
+    let invalid_id = 999u32;
+
+    // 1. get_campaign with invalid ID
+    // Expected: Returns Error::CampaignNotFound (previously panicked before Issue #8 fix)
+    let res = client.try_get_campaign(&invalid_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+
+    // 2. get_contribution with valid campaign but non-existent contributor
+    // Expected: Returns 0 (no panic)
+    assert_eq!(client.get_contribution(&campaign_id, &stranger), 0);
+
+    // 3. get_contribution with invalid campaign ID
+    // Expected: Returns 0 (no panic)
+    assert_eq!(client.get_contribution(&invalid_id, &contributor1), 0);
+
+    // 4. get_revenue_pool with invalid campaign ID
+    // Expected: Returns 0 (no panic)
+    assert_eq!(client.get_revenue_pool(&invalid_id), 0);
+
+    // 5. get_revenue_claimed with valid campaign but non-existent contributor
+    // Expected: Returns 0 (no panic)
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &stranger), 0);
+
+    // 6. get_revenue_claimed with invalid campaign ID
+    // Expected: Returns 0 (no panic)
+    assert_eq!(client.get_revenue_claimed(&invalid_id, &contributor1), 0);
+}
+>>>>>>> Stashed changes
