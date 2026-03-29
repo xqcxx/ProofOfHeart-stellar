@@ -11,18 +11,17 @@ const CONTRACT_VERSION: u32 = 1;
 mod errors;
 mod storage;
 mod types;
+mod voting;
 
 pub use errors::Error;
-use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
+pub use storage::DataKey;
 use storage::*;
 pub use types::*;
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
 /// The main contract struct for the Proof of Heart Stellar implementation.
 #[contract]
 pub struct ProofOfHeart;
-
-const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
-const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
@@ -32,7 +31,7 @@ impl ProofOfHeart {
     /// # Arguments
     /// * `admin` - The global admin address.
     /// * `token` - The required token for contributions and revenue.
-    /// * `platform_fee` - The fee percentage taken from funds.
+    /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
     ///
     /// # Authorization
     /// Requires `admin.require_auth()`.
@@ -52,8 +51,8 @@ impl ProofOfHeart {
         set_platform_fee(&env, valid_fee);
         set_campaign_count(&env, 0);
         set_version(&env, CONTRACT_VERSION);
-        set_min_votes_quorum(&env, DEFAULT_MIN_VOTES_QUORUM);
-        set_approval_threshold_bps(&env, DEFAULT_APPROVAL_THRESHOLD_BPS);
+        set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
+        set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
 
         env.events()
             .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
@@ -64,13 +63,13 @@ impl ProofOfHeart {
     ///
     /// # Arguments
     /// * `creator` - The address of the individual/startup starting the campaign.
-    /// * `title` - Short name of the campaign.
-    /// * `description` - Long description of the campaign.
+    /// * `title` - Short name of the campaign (1–100 characters).
+    /// * `description` - Long description of the campaign (1–1000 characters).
     /// * `funding_goal` - Target token amount.
-    /// * `duration_days` - Number of days until deadline.
+    /// * `duration_days` - Number of days until deadline (1–365).
     /// * `category` - The specific categorical nature.
     /// * `has_revenue_sharing` - Should it enforce revenue deposits.
-    /// * `revenue_share_percentage` - The percentage of share.
+    /// * `revenue_share_percentage` - The percentage of share in basis points.
     ///
     /// # Returns
     /// The unique 32-bit `id` of the created campaign.
@@ -205,7 +204,7 @@ impl ProofOfHeart {
     /// * `campaign_id` - ID of the target campaign.
     ///
     /// # Errors
-    /// * `FundingGoalNotReached` - Target goal has not met.
+    /// * `FundingGoalNotReached` - Target goal has not been met.
     /// * `NoFundsToWithdraw` - Zero balance or already withdrawn.
     ///
     /// # Authorization
@@ -293,11 +292,7 @@ impl ProofOfHeart {
         title: String,
         description: String,
     ) -> Result<(), Error> {
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
         campaign.creator.require_auth();
 
@@ -319,12 +314,52 @@ impl ProofOfHeart {
         campaign.title = title.clone();
         campaign.description = description;
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
+        set_campaign(&env, campaign_id, &campaign);
 
         env.events()
             .publish(("campaign_updated", campaign_id), title);
+
+        Ok(())
+    }
+
+    /// Updates the description of an active campaign.
+    ///
+    /// Unlike `update_campaign`, this function allows updating the description
+    /// even after contributions have been made. The funding goal and deadline
+    /// cannot be changed.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - ID of the campaign to update.
+    /// * `description` - New description (1–1000 characters).
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign exists with the given ID.
+    /// * `CampaignNotActive` - Campaign is cancelled or inactive.
+    /// * `ValidationFailed` - Description is empty or exceeds 1000 characters.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
+    pub fn update_campaign_description(
+        env: Env,
+        campaign_id: u32,
+        description: String,
+    ) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+
+        campaign.creator.require_auth();
+
+        if campaign.is_cancelled || !campaign.is_active {
+            return Err(Error::CampaignNotActive);
+        }
+        if description.len() == 0 || description.len() > 1000 {
+            return Err(Error::ValidationFailed);
+        }
+
+        campaign.description = description;
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events()
+            .publish(("campaign_description_updated", campaign_id), ());
 
         Ok(())
     }
@@ -362,7 +397,7 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Deposits revenue back into a profit-sharing campaign pool (For start-ups).
+    /// Deposits revenue back into a profit-sharing campaign pool (for start-ups).
     ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
@@ -390,7 +425,12 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Claims a share of the revenue pool proportional to the individual contributor's contribution.
+    /// Claims a share of the revenue pool proportional to the contributor's contribution.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
+    /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         if !campaign.has_revenue_sharing {
@@ -427,6 +467,11 @@ impl ProofOfHeart {
     }
 
     /// Claims the creator's retained share of the revenue pool.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `ValidationFailed` - Campaign does not have revenue sharing enabled.
+    /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
@@ -479,20 +524,7 @@ impl ProofOfHeart {
         min_votes_quorum: u32,
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
-        admin.require_auth();
-        let stored_admin = get_admin(&env);
-        if admin != stored_admin {
-            return Err(Error::NotAuthorized);
-        }
-
-        if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
-            return Err(Error::ValidationFailed);
-        }
-
-        set_min_votes_quorum(&env, min_votes_quorum);
-        set_approval_threshold_bps(&env, approval_threshold_bps);
-
-        Ok(())
+        voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)
     }
 
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
@@ -505,41 +537,7 @@ impl ProofOfHeart {
         voter: Address,
         approve: bool,
     ) -> Result<(), Error> {
-        voter.require_auth();
-
-        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-        if campaign.is_cancelled || !campaign.is_active {
-            return Err(Error::CampaignNotActive);
-        }
-
-        let token_addr = get_token(&env);
-        let token_client = token::Client::new(&env, &token_addr);
-        let voter_balance = token_client.balance(&voter);
-        if voter_balance <= 0 {
-            return Err(Error::NotTokenHolder);
-        }
-
-        if get_has_voted(&env, campaign_id, &voter) {
-            return Err(Error::AlreadyVoted);
-        }
-
-        if approve {
-            let current = get_approve_votes(&env, campaign_id);
-            set_approve_votes(&env, campaign_id, current + 1);
-        } else {
-            let current = get_reject_votes(&env, campaign_id);
-            set_reject_votes(&env, campaign_id, current + 1);
-        }
-
-        set_has_voted(&env, campaign_id, &voter);
-        env.events()
-            .publish(("campaign_vote_cast", campaign_id, voter), approve);
-
-        Ok(())
+        voting::cast_vote(&env, campaign_id, voter, approve)
     }
 
     /// Directly verify a campaign. Can only be performed by the admin.
@@ -547,52 +545,12 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `admin.require_auth()`.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let admin = get_admin(&env);
-        admin.require_auth();
-
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-
-        campaign.is_verified = true;
-        set_campaign(&env, campaign_id, &campaign);
-        env.events().publish(("campaign_verified", campaign_id), ());
-
-        Ok(())
+        voting::admin_verify(&env, campaign_id)
     }
 
     /// Checks if a campaign meets community verification thresholds and marks it verified.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-
-        let approve_votes = get_approve_votes(&env, campaign_id);
-        let reject_votes = get_reject_votes(&env, campaign_id);
-        let total_votes = approve_votes + reject_votes;
-
-        let min_votes_quorum = get_min_votes_quorum(&env, DEFAULT_MIN_VOTES_QUORUM);
-        if total_votes < min_votes_quorum {
-            return Err(Error::VotingQuorumNotMet);
-        }
-
-        let approval_threshold_bps =
-            get_approval_threshold_bps(&env, DEFAULT_APPROVAL_THRESHOLD_BPS);
-        let approval_bps = (approve_votes * 10000) / total_votes;
-        if approval_bps < approval_threshold_bps {
-            return Err(Error::VotingThresholdNotMet);
-        }
-
-        campaign.is_verified = true;
-        set_campaign(&env, campaign_id, &campaign);
-        env.events()
-            .publish(("campaign_verified", campaign_id), approve_votes);
-
-        Ok(())
+        voting::verify_with_votes(&env, campaign_id)
     }
 
     /// Gets a campaign's current state.
@@ -603,12 +561,9 @@ impl ProofOfHeart {
         get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
     }
 
-    /// Gets the total number of campaigns created.
+    /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::CampaignCount)
-            .unwrap_or(0)
+        get_campaign_count(&env)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -626,10 +581,6 @@ impl ProofOfHeart {
         get_revenue_claimed(&env, campaign_id, &contributor)
     }
 
-    /// Returns the total number of campaigns created.
-    pub fn get_campaign_count(env: Env) -> u32 {
-        get_campaign_count(&env)
-    }
     /// Returns the current contract version stored in instance storage.
     /// A return value of 0 indicates the contract was initialized before version tracking was added.
     pub fn get_version(env: Env) -> u32 {
@@ -686,26 +637,31 @@ impl ProofOfHeart {
 
     /// Gets the minimum votes needed to reach quorum.
     pub fn get_min_votes_quorum(env: Env) -> u32 {
-        get_min_votes_quorum(&env, DEFAULT_MIN_VOTES_QUORUM)
+        get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM)
     }
 
     /// Gets the required approval threshold in basis points.
     pub fn get_approval_threshold_bps(env: Env) -> u32 {
-        get_approval_threshold_bps(&env, DEFAULT_APPROVAL_THRESHOLD_BPS)
+        get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS)
     }
 
+    /// Returns the current admin address.
     pub fn get_admin(env: Env) -> Address {
         get_admin(&env)
     }
 
+    /// Returns the accepted token address.
     pub fn get_token(env: Env) -> Address {
         get_token(&env)
     }
 
+    /// Returns the current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
     }
 }
 
+#[cfg(test)]
+mod test;
 #[cfg(test)]
 mod update_admin_test;

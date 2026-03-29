@@ -290,21 +290,25 @@ fn test_pull_based_revenue_distribution() {
     client.deposit_revenue(&campaign_id, &5000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 5000);
 
+    // contributor_pool = (5000 * 2000) / 10000 = 1000 (20% of pool to contributors)
+    // contributor1 share = (1000 * 1000) / 2000 = 500
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(token.balance(&contributor1), 2500);
+    assert_eq!(token.balance(&contributor1), 500);
     assert_eq!(
         client.get_revenue_claimed(&campaign_id, &contributor1),
-        2500
+        500
     );
 
     client.deposit_revenue(&campaign_id, &1000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 6000);
 
+    // contributor1: total_due = (1000 * 1200) / 2000 = 600, already_claimed = 500, claimable = 100
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(token.balance(&contributor1), 3000);
+    assert_eq!(token.balance(&contributor1), 600);
 
+    // contributor2: total_due = (1000 * 1200) / 2000 = 600, claimable = 600
     client.claim_revenue(&campaign_id, &contributor2);
-    assert_eq!(token.balance(&contributor2), 3000);
+    assert_eq!(token.balance(&contributor2), 600);
 }
 
 #[test]
@@ -820,7 +824,7 @@ fn test_revenue_sharing_edge_cases() {
 
     let title = String::from_str(&env, "Rounding Test");
     let desc = String::from_str(&env, "Test rounding and pool edge cases");
-    // 100% revenue share (10000 bps)
+    // 50% revenue share to contributors (5000 bps = max allowed)
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -829,7 +833,7 @@ fn test_revenue_sharing_edge_cases() {
         &30,
         &Category::EducationalStartup,
         &true,
-        &10000,
+        &5000,
     );
 
     client.contribute(&campaign_id, &contributor1, &1);
@@ -840,13 +844,15 @@ fn test_revenue_sharing_edge_cases() {
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
 
-    // 3. Rounding: 10 revenue / 3 contribution units (1 vs 2)
+    // 3. Rounding: pool=10, contributor_pool = (10*5000)/10000 = 5
+    // contributor1 (1 of 3): (1 * 5) / 3 = 1
+    // contributor2 (2 of 3): (2 * 5) / 3 = 3
     client.deposit_revenue(&campaign_id, &10);
-    client.claim_revenue(&campaign_id, &contributor1); // (1 * 10) / 3 = 3
-    assert_eq!(token.balance(&contributor1), 12); // Initial 10 - 1 contribution + 3 claimed
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 10); // Initial 10 - 1 contribution + 1 claimed
 
-    client.claim_revenue(&campaign_id, &contributor2); // (2 * 10) / 3 = 6
-    assert_eq!(token.balance(&contributor2), 14); // Initial 10 - 2 contribution + 6 claimed
+    client.claim_revenue(&campaign_id, &contributor2);
+    assert_eq!(token.balance(&contributor2), 11); // Initial 10 - 2 contribution + 3 claimed
 
     // 4. Double claim: NoFundsToWithdraw
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
@@ -898,4 +904,94 @@ fn test_view_functions_error_handling() {
     // 6. get_revenue_claimed with invalid campaign ID
     // Expected: Returns 0 (no panic)
     assert_eq!(client.get_revenue_claimed(&invalid_id, &contributor1), 0);
+}
+
+// ── Issue #68: update_campaign_description ────────────────────────────────────
+
+#[test]
+fn test_update_campaign_description_success() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &10_000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Original Title"),
+        &String::from_str(&env, "Original description"),
+        &1_000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    // Contribute so amount_raised > 0 (update_campaign would reject this)
+    token_admin.mint(&contributor1, &1_000);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let new_desc = String::from_str(&env, "Updated description with more detail");
+    let res = client.try_update_campaign_description(&campaign_id, &new_desc);
+    assert!(res.is_ok());
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.description, new_desc);
+    // Funding goal and deadline must remain unchanged
+    assert_eq!(campaign.funding_goal, 1_000);
+}
+
+#[test]
+fn test_update_campaign_description_rejects_cancelled() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Title"),
+        &String::from_str(&env, "Desc"),
+        &1_000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "New desc"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_update_campaign_description_rejects_empty() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Title"),
+        &String::from_str(&env, "Desc"),
+        &1_000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, ""),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_update_campaign_description_not_found() {
+    let (env, _, _, _, _, _, _, client) = setup_env();
+
+    let res = client.try_update_campaign_description(
+        &999,
+        &String::from_str(&env, "Some desc"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }

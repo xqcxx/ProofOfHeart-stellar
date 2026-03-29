@@ -4,9 +4,13 @@ use soroban_sdk::{contracttype, Address, String};
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Category {
+    /// A learner seeking funding for education.
     Learner = 0,
+    /// An educational startup eligible for revenue sharing.
     EducationalStartup = 1,
+    /// An educator creating learning content.
     Educator = 2,
+    /// A publisher creating educational materials.
     Publisher = 3,
 }
 
@@ -14,38 +18,32 @@ pub enum Category {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Campaign {
+    /// Unique numeric identifier assigned at creation.
     pub id: u32,
+    /// The address of the campaign creator.
     pub creator: Address,
+    /// Short display name of the campaign.
     pub title: String,
+    /// Long description of the campaign's purpose.
     pub description: String,
+    /// Target token amount required to consider the campaign successful.
     pub funding_goal: i128,
+    /// Unix timestamp after which contributions are no longer accepted.
     pub deadline: u64,
+    /// Total tokens raised so far.
     pub amount_raised: i128,
+    /// Whether the campaign is currently accepting contributions.
     pub is_active: bool,
+    /// Whether the creator has already withdrawn funds.
     pub funds_withdrawn: bool,
+    /// Whether the campaign has been cancelled by the creator.
     pub is_cancelled: bool,
+    /// Whether the campaign has been verified (by admin or community vote).
     pub is_verified: bool,
+    /// The category of the campaign.
     pub category: Category,
+    /// Whether contributors are entitled to a share of future revenue.
     pub has_revenue_sharing: bool,
+    /// Percentage of deposited revenue distributed to contributors, in basis points.
     pub revenue_share_percentage: u32,
-}
-
-/// Keys representing the unique storage state for the contract.
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    Token,
-    PlatformFee,
-    CampaignCount,
-    Campaign(u32),
-    Contribution(u32, Address),
-    RevenuePool(u32),
-    RevenueClaimed(u32, Address),
-    CreatorRevenueClaimed(u32),
-    Version,
-    ApproveVotes(u32),
-    RejectVotes(u32),
-    HasVoted(u32, Address),
-    MinVotesQuorum,
-    ApprovalThresholdBps,
 }
