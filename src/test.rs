@@ -997,6 +997,17 @@ fn test_update_campaign_description_not_found() {
 }
 
 #[test]
+fn test_campaign_ownership_transfer_flow() {
+    let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
+    let new_creator = contributor1;
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Transfer Test"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &30,
+        &Category::Educator,
 fn test_pause_and_unpause() {
     let (_env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
 
@@ -1038,6 +1049,84 @@ fn test_pause_blocks_state_changing_operations() {
         &0,
     );
 
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, Some(new_creator.clone()));
+    assert_eq!(campaign.creator, creator);
+
+    client.accept_campaign_transfer(&campaign_id);
+
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.creator, new_creator.clone());
+    assert_eq!(campaign_after.pending_creator, None);
+
+    let updated_description = String::from_str(&env, "Managed by the transferred owner");
+    client.update_campaign_description(&campaign_id, &updated_description);
+
+    let auths = env.auths();
+    let (auth_addr, invocation) = auths.last().unwrap();
+    assert_eq!(auth_addr, &new_creator);
+    assert_eq!(
+        invocation,
+        &AuthorizedInvocation {
+            function: AuthorizedFunction::Contract((
+                client.address.clone(),
+                Symbol::new(&env, "update_campaign_description"),
+                (campaign_id, updated_description).into_val(&env),
+            )),
+            sub_invocations: Default::default(),
+        }
+    );
+
+    let campaign_id_2 = client.create_campaign(
+        &new_creator,
+        &String::from_str(&env, "Cancel Test"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+    client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
+    client.cancel_campaign_transfer(&campaign_id_2);
+    let final_campaign = client.get_campaign(&campaign_id_2);
+    assert_eq!(final_campaign.pending_creator, None);
+}
+
+#[test]
+fn test_campaign_transfer_validations() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Transfer Guardrails"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &30,
+        &Category::Publisher,
+        &false,
+        &0,
+    );
+
+    let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidNewOwner);
+
+    let res = client.try_accept_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+    client.cancel_campaign_transfer(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, None);
+
+    let res = client.try_cancel_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+
+    let auths = env.auths();
+    let (auth_addr, _) = auths.last().unwrap();
+    assert_eq!(auth_addr, &creator);
     // Pause
     client.pause(&admin);
     assert!(client.is_paused());
