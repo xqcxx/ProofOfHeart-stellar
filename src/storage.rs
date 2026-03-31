@@ -41,6 +41,10 @@ pub enum DataKey {
     MinVotesQuorum,
     /// Required approval percentage in basis points (e.g. 6000 = 60%).
     ApprovalThresholdBps,
+    /// Total token-weight of approval votes for a campaign, keyed by campaign ID.
+    ApproveWeight(u32),
+    /// Total token-weight of rejection votes for a campaign, keyed by campaign ID.
+    RejectWeight(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -241,6 +245,46 @@ pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+// ── Vote weights (token-weighted) ─────────────────────────────────────────────
+
+/// Returns the total approval token-weight for a campaign, extending TTL if non-zero.
+pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::ApproveWeight(campaign_id);
+    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores the total approval token-weight for a campaign and extends its TTL.
+pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
+    let key = DataKey::ApproveWeight(campaign_id);
+    env.storage().persistent().set(&key, &weight);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns the total rejection token-weight for a campaign, extending TTL if non-zero.
+pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::RejectWeight(campaign_id);
+    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores the total rejection token-weight for a campaign and extends its TTL.
+pub fn set_reject_weight(env: &Env, campaign_id: u32, weight: i128) {
+    let key = DataKey::RejectWeight(campaign_id);
+    env.storage().persistent().set(&key, &weight);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
 /// Returns whether a voter has already voted on a campaign, extending TTL if true.
 pub fn get_has_voted(env: &Env, campaign_id: u32, voter: &Address) -> bool {
     let key = DataKey::HasVoted(campaign_id, voter.clone());
@@ -303,4 +347,19 @@ pub fn get_version(env: &Env) -> u32 {
         .instance()
         .get(&DataKey::Version)
         .unwrap_or(0)
+}
+
+// ── Paused state ──────────────────────────────────────────────────────────────
+
+/// Returns whether the contract is currently paused.
+pub fn get_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Stores the paused state of the contract.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
 }
