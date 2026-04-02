@@ -68,6 +68,7 @@ fn test_create_and_validation() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalMustBePositive);
 
@@ -81,6 +82,7 @@ fn test_create_and_validation() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
@@ -93,6 +95,7 @@ fn test_create_and_validation() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
@@ -105,6 +108,7 @@ fn test_create_and_validation() {
         &Category::Educator,
         &true,
         &1000,
+        &0i128,
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueShareOnlyForStartup);
 
@@ -117,6 +121,7 @@ fn test_create_and_validation() {
         &Category::EducationalStartup,
         &true,
         &1500,
+        &0i128,
     );
     assert_eq!(campaign_id, 1);
 
@@ -144,6 +149,7 @@ fn test_contribute_and_withdraw_success() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -178,6 +184,7 @@ fn test_creator_cannot_contribute_to_own_campaign() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     let res = client.try_contribute(&campaign_id, &creator, &100);
@@ -203,6 +210,7 @@ fn test_cancel_and_refund() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -238,6 +246,7 @@ fn test_claim_refund_requires_contributor_auth() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -284,6 +293,7 @@ fn test_pull_based_revenue_distribution() {
         &Category::EducationalStartup,
         &true,
         &2000,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -330,6 +340,7 @@ fn test_failure_states() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     let res = client.try_withdraw_funds(&campaign_id);
@@ -385,6 +396,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     let c2_title = String::from_str(&env, "Campaign 2");
@@ -398,6 +410,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     let c3_title = String::from_str(&env, "Campaign 3");
@@ -411,6 +424,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &Category::EducationalStartup,
         &true,
         &1500,
+        &0i128,
     );
 
     assert_eq!(campaign_1, 1);
@@ -496,6 +510,7 @@ fn test_double_refund_prevention() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -534,6 +549,7 @@ fn test_admin_verify_campaign_success() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     client.verify_campaign(&campaign_id);
@@ -557,6 +573,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
 
     client.verify_campaign(&campaign_id);
@@ -585,6 +602,7 @@ fn test_community_voting_verification_success() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -618,6 +636,7 @@ fn test_vote_prevents_double_voting_and_requires_token_holder() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -656,6 +675,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
 
     client.vote_on_campaign(&campaign_id_1, &contributor1, &true);
@@ -680,6 +700,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
 
     client.vote_on_campaign(&campaign_id_2, &contributor1, &true);
@@ -734,6 +755,7 @@ fn test_deadline_boundary() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     let campaign = client.get_campaign(&campaign_id);
@@ -816,6 +838,7 @@ fn test_revenue_sharing_edge_cases() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -836,6 +859,7 @@ fn test_revenue_sharing_edge_cases() {
         &Category::EducationalStartup,
         &true,
         &5000,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &1);
@@ -877,6 +901,7 @@ fn test_view_functions_error_handling() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     let stranger = Address::generate(&env);
@@ -925,6 +950,7 @@ fn test_update_campaign_description_success() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     // Contribute so amount_raised > 0 (update_campaign would reject this)
@@ -954,6 +980,7 @@ fn test_update_campaign_description_rejects_cancelled() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.cancel_campaign(&campaign_id);
@@ -976,6 +1003,7 @@ fn test_update_campaign_description_rejects_empty() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
@@ -1004,6 +1032,7 @@ fn test_campaign_ownership_transfer_flow() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
@@ -1047,6 +1076,7 @@ fn test_campaign_ownership_transfer_flow() {
         &Category::Educator,
         &false,
         &0,
+        &0i128,
     );
     client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
     client.cancel_campaign_transfer(&campaign_id_2);
@@ -1067,6 +1097,7 @@ fn test_campaign_transfer_validations() {
         &Category::Publisher,
         &false,
         &0,
+        &0i128,
     );
 
     let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
@@ -1131,6 +1162,7 @@ fn test_pause_blocks_state_changing_operations() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     // Pause
@@ -1147,6 +1179,7 @@ fn test_pause_blocks_state_changing_operations() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 
@@ -1200,6 +1233,7 @@ fn test_contribute_one_second_before_deadline() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     let deadline = client.get_campaign(&campaign_id).deadline;
@@ -1235,6 +1269,7 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1260,6 +1295,7 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1300,6 +1336,7 @@ fn test_no_refund_when_goal_reached() {
         &Category::Learner,
         &false,
         &0,
+        &0i128,
     );
 
     // Meet the funding goal exactly

@@ -83,6 +83,7 @@ impl ProofOfHeart {
     /// * `category` - The specific categorical nature.
     /// * `has_revenue_sharing` - Should it enforce revenue deposits.
     /// * `revenue_share_percentage` - The percentage of share in basis points.
+    /// * `max_contribution_per_user` - Per-contributor cap in tokens (0 = unlimited).
     ///
     /// # Returns
     /// The unique 32-bit `id` of the created campaign.
@@ -100,6 +101,7 @@ impl ProofOfHeart {
         category: Category,
         has_revenue_sharing: bool,
         revenue_share_percentage: u32,
+        max_contribution_per_user: i128,
     ) -> Result<u32, Error> {
         creator.require_auth();
         Self::require_not_paused(&env)?;
@@ -124,6 +126,9 @@ impl ProofOfHeart {
         {
             return Err(Error::InvalidRevenueShare);
         }
+        if max_contribution_per_user < 0 {
+            return Err(Error::ValidationFailed);
+        }
 
         let mut count = get_campaign_count(&env);
         count += 1;
@@ -147,6 +152,7 @@ impl ProofOfHeart {
             category,
             has_revenue_sharing,
             revenue_share_percentage,
+            max_contribution_per_user,
         };
 
         set_campaign(&env, count, &campaign);
@@ -198,14 +204,21 @@ impl ProofOfHeart {
             return Err(Error::DeadlinePassed);
         }
 
+        let current = get_contribution(&env, campaign_id, &contributor);
+
+        // Enforce per-contributor cap if set (0 means unlimited).
+        if campaign.max_contribution_per_user > 0
+            && current + amount > campaign.max_contribution_per_user
+        {
+            return Err(Error::ContributionCapExceeded);
+        }
+
         let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&contributor, &env.current_contract_address(), &amount);
 
         campaign.amount_raised += amount;
         set_campaign(&env, campaign_id, &campaign);
-
-        let current = get_contribution(&env, campaign_id, &contributor);
         set_contribution(&env, campaign_id, &contributor, current + amount);
 
         env.events()
