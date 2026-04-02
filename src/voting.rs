@@ -2,9 +2,10 @@ use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
 use crate::storage::{
-    get_admin, get_approval_threshold_bps, get_approve_votes, get_campaign, get_has_voted,
-    get_min_votes_quorum, get_reject_votes, get_token, set_approval_threshold_bps,
-    set_approve_votes, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
+    get_admin, get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_campaign,
+    get_has_voted, get_min_votes_quorum, get_reject_votes, get_reject_weight, get_token,
+    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
+    set_min_votes_quorum, set_reject_votes, set_reject_weight,
 };
 
 /// Default minimum number of votes required to reach quorum.
@@ -59,7 +60,8 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     let token_addr = get_token(env);
     let token_client = token::Client::new(env, &token_addr);
-    if token_client.balance(&voter) <= 0 {
+    let balance = token_client.balance(&voter);
+    if balance <= 0 {
         return Err(Error::NotTokenHolder);
     }
 
@@ -69,8 +71,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     if approve {
         set_approve_votes(env, campaign_id, get_approve_votes(env, campaign_id) + 1);
+        set_approve_weight(env, campaign_id, get_approve_weight(env, campaign_id) + balance);
     } else {
         set_reject_votes(env, campaign_id, get_reject_votes(env, campaign_id) + 1);
+        set_reject_weight(env, campaign_id, get_reject_weight(env, campaign_id) + balance);
     }
 
     set_has_voted(env, campaign_id, &voter);
@@ -125,8 +129,17 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::VotingQuorumNotMet);
     }
 
+    // Use token-weighted sums for the approval-threshold check.
+    let approve_weight = get_approve_weight(env, campaign_id);
+    let reject_weight = get_reject_weight(env, campaign_id);
+    let total_weight = approve_weight + reject_weight;
+
     let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
-    let approval_bps = (approve_votes * 10000) / total_votes;
+    let approval_bps = if total_weight > 0 {
+        ((approve_weight * 10000) / total_weight) as u32
+    } else {
+        0
+    };
     if approval_bps < threshold {
         return Err(Error::VotingThresholdNotMet);
     }

@@ -41,6 +41,10 @@ pub enum DataKey {
     MinVotesQuorum,
     /// Required approval percentage in basis points (e.g. 6000 = 60%).
     ApprovalThresholdBps,
+    /// Total token-weight of approval votes for a campaign, keyed by campaign ID.
+    ApproveWeight(u32),
+    /// Total token-weight of rejection votes for a campaign, keyed by campaign ID.
+    RejectWeight(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -250,6 +254,50 @@ pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
 pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
     let key = DataKey::RejectVotes(campaign_id);
     env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+// ── Vote weights (token-weighted) ─────────────────────────────────────────────
+
+/// Returns the total approval token-weight for a campaign, extending TTL if non-zero.
+pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::ApproveWeight(campaign_id);
+    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores the total approval token-weight for a campaign and extends its TTL.
+pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
+    let key = DataKey::ApproveWeight(campaign_id);
+    env.storage().persistent().set(&key, &weight);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns the total rejection token-weight for a campaign, extending TTL if non-zero.
+pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::RejectWeight(campaign_id);
+    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores the total rejection token-weight for a campaign and extends its TTL.
+pub fn set_reject_weight(env: &Env, campaign_id: u32, weight: i128) {
+    let key = DataKey::RejectWeight(campaign_id);
+    env.storage().persistent().set(&key, &weight);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
